@@ -2,6 +2,8 @@ import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
+import routes from './routes';
+import { errorHandler } from './middleware/errorHandler';
 
 dotenv.config();
 
@@ -19,6 +21,9 @@ app.get('/api/health', (_req, res) => {
     message: 'API server is running',
   });
 });
+
+app.use('/api', routes);
+app.use(errorHandler);
 
 async function startServer(): Promise<void> {
   try {
