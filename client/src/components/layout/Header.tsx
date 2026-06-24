@@ -16,6 +16,9 @@ export default function Header() {
           <a href="#catalog" className="transition hover:text-rose-700">
             {ui.navCatalog}
           </a>
+          <Link href="/builder" className="transition hover:text-rose-700">
+            {ui.heroCardTitle}
+          </Link>
           <a href="#about" className="transition hover:text-rose-700">
             {ui.navAbout}
           </a>

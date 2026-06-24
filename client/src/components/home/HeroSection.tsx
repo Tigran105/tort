@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { ui } from '@/constants/ui';
 
 export default function HeroSection() {
@@ -19,6 +20,12 @@ export default function HeroSection() {
             >
               {ui.heroCtaCatalog}
             </a>
+            <Link
+              href="/builder"
+              className="rounded-full border border-rose-200 bg-white px-6 py-3 text-sm font-semibold text-rose-900 transition hover:border-rose-300"
+            >
+              {ui.heroCardTitle}
+            </Link>
             <a
               href="#contact"
               className="rounded-full border border-rose-200 bg-white px-6 py-3 text-sm font-semibold text-rose-900 transition hover:border-rose-300"
