@@ -1,57 +1,79 @@
 import { Request, Response } from 'express';
-import { Size, Tier } from '../models';
-import { createSearchRegex } from '../utils/searchText';
+import { prisma } from '../lib/prisma';
 import { asyncHandler } from '../utils/asyncHandler';
 import { AppError } from '../middleware/errorHandler';
+import { parseId } from '../utils/parseId';
+import { buildSearchWhere } from '../utils/searchFilter';
+import { prepareSizeData, prepareTierData } from '../utils/entityData';
+import { serializeSize, serializeTier } from '../utils/serializers';
 
 export const getSizes = asyncHandler(async (req: Request, res: Response) => {
   const { search, active } = req.query;
-  const filter: Record<string, unknown> = {};
+  const searchWhere = typeof search === 'string' ? buildSearchWhere(search) : undefined;
 
-  if (active === 'true') {
-    filter.isActive = true;
-  }
+  const sizes = await prisma.size.findMany({
+    where: {
+      ...(active === 'true' ? { isActive: true } : {}),
+      ...(searchWhere ?? {}),
+    },
+    orderBy: { sortOrder: 'asc' },
+  });
 
-  if (typeof search === 'string' && search.trim()) {
-    filter.searchText = createSearchRegex(search);
-  }
-
-  const sizes = await Size.find(filter).sort({ sortOrder: 1 });
-  res.json({ success: true, data: sizes });
+  res.json({ success: true, data: sizes.map(serializeSize) });
 });
 
 export const getSizeById = asyncHandler(async (req: Request, res: Response) => {
-  const size = await Size.findById(req.params.id);
-
-  if (!size) {
-    throw new AppError('Չափսը չի գտնվել', 404);
-  }
-
-  res.json({ success: true, data: size });
-});
-
-export const createSize = asyncHandler(async (req: Request, res: Response) => {
-  const size = await Size.create(req.body);
-  res.status(201).json({ success: true, data: size });
-});
-
-export const updateSize = asyncHandler(async (req: Request, res: Response) => {
-  const size = await Size.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
+  const size = await prisma.size.findUnique({
+    where: { id: parseId(req.params.id) },
   });
 
   if (!size) {
     throw new AppError('Չափսը չի գտնվել', 404);
   }
 
-  res.json({ success: true, data: size });
+  res.json({ success: true, data: serializeSize(size) });
+});
+
+export const createSize = asyncHandler(async (req: Request, res: Response) => {
+  const size = await prisma.size.create({
+    data: prepareSizeData(req.body),
+  });
+
+  res.status(201).json({ success: true, data: serializeSize(size) });
+});
+
+export const updateSize = asyncHandler(async (req: Request, res: Response) => {
+  const id = parseId(req.params.id);
+  const data =
+    req.body.code !== undefined ||
+    req.body.name !== undefined ||
+    req.body.guestRange !== undefined
+      ? prepareSizeData(req.body)
+      : {
+          sortOrder:
+            req.body.sortOrder !== undefined ? Number(req.body.sortOrder) : undefined,
+          isActive: req.body.isActive,
+          basePrice: req.body.basePrice !== undefined ? Number(req.body.basePrice) : undefined,
+        };
+
+  try {
+    const size = await prisma.size.update({
+      where: { id },
+      data,
+    });
+
+    res.json({ success: true, data: serializeSize(size) });
+  } catch {
+    throw new AppError('Չափսը չի գտնվել', 404);
+  }
 });
 
 export const deleteSize = asyncHandler(async (req: Request, res: Response) => {
-  const size = await Size.findByIdAndDelete(req.params.id);
+  const id = parseId(req.params.id);
 
-  if (!size) {
+  try {
+    await prisma.size.delete({ where: { id } });
+  } catch {
     throw new AppError('Չափսը չի գտնվել', 404);
   }
 
@@ -60,52 +82,72 @@ export const deleteSize = asyncHandler(async (req: Request, res: Response) => {
 
 export const getTiers = asyncHandler(async (req: Request, res: Response) => {
   const { search, active } = req.query;
-  const filter: Record<string, unknown> = {};
+  const searchWhere = typeof search === 'string' ? buildSearchWhere(search) : undefined;
 
-  if (active === 'true') {
-    filter.isActive = true;
-  }
+  const tiers = await prisma.tier.findMany({
+    where: {
+      ...(active === 'true' ? { isActive: true } : {}),
+      ...(searchWhere ?? {}),
+    },
+    orderBy: [{ sortOrder: 'asc' }, { count: 'asc' }],
+  });
 
-  if (typeof search === 'string' && search.trim()) {
-    filter.searchText = createSearchRegex(search);
-  }
-
-  const tiers = await Tier.find(filter).sort({ sortOrder: 1, level: 1 });
-  res.json({ success: true, data: tiers });
+  res.json({ success: true, data: tiers.map(serializeTier) });
 });
 
 export const getTierById = asyncHandler(async (req: Request, res: Response) => {
-  const tier = await Tier.findById(req.params.id);
-
-  if (!tier) {
-    throw new AppError('Հարկը չի գտնվել', 404);
-  }
-
-  res.json({ success: true, data: tier });
-});
-
-export const createTier = asyncHandler(async (req: Request, res: Response) => {
-  const tier = await Tier.create(req.body);
-  res.status(201).json({ success: true, data: tier });
-});
-
-export const updateTier = asyncHandler(async (req: Request, res: Response) => {
-  const tier = await Tier.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
+  const tier = await prisma.tier.findUnique({
+    where: { id: parseId(req.params.id) },
   });
 
   if (!tier) {
     throw new AppError('Հարկը չի գտնվել', 404);
   }
 
-  res.json({ success: true, data: tier });
+  res.json({ success: true, data: serializeTier(tier) });
+});
+
+export const createTier = asyncHandler(async (req: Request, res: Response) => {
+  const tier = await prisma.tier.create({
+    data: prepareTierData(req.body),
+  });
+
+  res.status(201).json({ success: true, data: serializeTier(tier) });
+});
+
+export const updateTier = asyncHandler(async (req: Request, res: Response) => {
+  const id = parseId(req.params.id);
+  const data =
+    req.body.level !== undefined || req.body.name !== undefined
+      ? prepareTierData(req.body)
+      : {
+          sortOrder:
+            req.body.sortOrder !== undefined ? Number(req.body.sortOrder) : undefined,
+          isActive: req.body.isActive,
+          priceMultiplier:
+            req.body.priceMultiplier !== undefined
+              ? Number(req.body.priceMultiplier)
+              : undefined,
+        };
+
+  try {
+    const tier = await prisma.tier.update({
+      where: { id },
+      data,
+    });
+
+    res.json({ success: true, data: serializeTier(tier) });
+  } catch {
+    throw new AppError('Հարկը չի գտնվել', 404);
+  }
 });
 
 export const deleteTier = asyncHandler(async (req: Request, res: Response) => {
-  const tier = await Tier.findByIdAndDelete(req.params.id);
+  const id = parseId(req.params.id);
 
-  if (!tier) {
+  try {
+    await prisma.tier.delete({ where: { id } });
+  } catch {
     throw new AppError('Հարկը չի գտնվել', 404);
   }
 

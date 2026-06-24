@@ -1,78 +1,95 @@
 import { Request, Response } from 'express';
-import { Cake } from '../models';
-import { createSearchRegex } from '../utils/searchText';
+import { prisma } from '../lib/prisma';
 import { asyncHandler } from '../utils/asyncHandler';
 import { AppError } from '../middleware/errorHandler';
+import { parseId, parseOptionalId } from '../utils/parseId';
+import { buildSearchWhere } from '../utils/searchFilter';
+import { prepareCakeData } from '../utils/entityData';
+import { serializeCake } from '../utils/serializers';
 
 export const getCakes = asyncHandler(async (req: Request, res: Response) => {
   const { search, category, minPrice, maxPrice, featured, active } = req.query;
-  const filter: Record<string, unknown> = {};
+  const searchWhere = typeof search === 'string' ? buildSearchWhere(search) : undefined;
+  const categoryId = typeof category === 'string' ? parseOptionalId(category) : undefined;
 
-  if (active === 'true') {
-    filter.isActive = true;
-  }
+  const cakes = await prisma.cake.findMany({
+    where: {
+      ...(active === 'true' ? { isActive: true } : {}),
+      ...(featured === 'true' ? { isFeatured: true } : {}),
+      ...(categoryId !== undefined ? { categoryId } : {}),
+      ...(searchWhere ?? {}),
+      ...(minPrice || maxPrice
+        ? {
+            price: {
+              ...(minPrice ? { gte: Number(minPrice) } : {}),
+              ...(maxPrice ? { lte: Number(maxPrice) } : {}),
+            },
+          }
+        : {}),
+    },
+    include: { category: true },
+    orderBy: { createdAt: 'desc' },
+  });
 
-  if (typeof category === 'string' && category.trim()) {
-    filter.category = category;
-  }
-
-  if (featured === 'true') {
-    filter.isFeatured = true;
-  }
-
-  if (typeof search === 'string' && search.trim()) {
-    filter.searchText = createSearchRegex(search);
-  }
-
-  if (minPrice || maxPrice) {
-    filter.price = {};
-    if (minPrice) {
-      (filter.price as Record<string, number>).$gte = Number(minPrice);
-    }
-    if (maxPrice) {
-      (filter.price as Record<string, number>).$lte = Number(maxPrice);
-    }
-  }
-
-  const cakes = await Cake.find(filter)
-    .populate('category', 'name slug')
-    .sort({ createdAt: -1 });
-
-  res.json({ success: true, data: cakes });
+  res.json({ success: true, data: cakes.map(serializeCake) });
 });
 
 export const getCakeById = asyncHandler(async (req: Request, res: Response) => {
-  const cake = await Cake.findById(req.params.id).populate('category', 'name slug');
+  const cake = await prisma.cake.findUnique({
+    where: { id: parseId(req.params.id) },
+    include: { category: true },
+  });
 
   if (!cake) {
     throw new AppError('Տորթը չի գտնվել', 404);
   }
 
-  res.json({ success: true, data: cake });
+  res.json({ success: true, data: serializeCake(cake) });
 });
 
 export const createCake = asyncHandler(async (req: Request, res: Response) => {
-  const cake = await Cake.create(req.body);
-  res.status(201).json({ success: true, data: cake });
+  const cake = await prisma.cake.create({
+    data: prepareCakeData(req.body),
+    include: { category: true },
+  });
+
+  res.status(201).json({ success: true, data: serializeCake(cake) });
 });
 
 export const updateCake = asyncHandler(async (req: Request, res: Response) => {
-  const cake = await Cake.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
-  }).populate('category', 'name slug');
+  const id = parseId(req.params.id);
+  const data =
+    req.body.name !== undefined ||
+    req.body.title !== undefined ||
+    req.body.description !== undefined
+      ? prepareCakeData({ ...req.body, category: req.body.category ?? req.body.categoryId })
+      : {
+          isFeatured: req.body.isFeatured,
+          isActive: req.body.isActive,
+          price: req.body.price !== undefined ? Number(req.body.price) : undefined,
+          images: req.body.images,
+          ingredients: req.body.ingredients,
+        };
 
-  if (!cake) {
+  try {
+    const cake = await prisma.cake.update({
+      where: { id },
+      data,
+      include: { category: true },
+    });
+
+    res.json({ success: true, data: serializeCake(cake) });
+  } catch {
     throw new AppError('Տորթը չի գտնվել', 404);
   }
-
-  res.json({ success: true, data: cake });
 });
 
 export const deleteCake = asyncHandler(async (req: Request, res: Response) => {
-  const cake = await Cake.findByIdAndDelete(req.params.id);
+  const id = parseId(req.params.id);
 
-  if (!cake) {
+  try {
+    await prisma.cake.delete({ where: { id } });
+  } catch {
     throw new AppError('Տորթը չի գտնվել', 404);
   }
 

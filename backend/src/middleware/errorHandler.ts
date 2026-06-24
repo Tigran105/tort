@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { Prisma } from '../generated/prisma/client';
 
 export class AppError extends Error {
   statusCode: number;
@@ -23,21 +24,22 @@ export function errorHandler(
     return;
   }
 
-  if (err.name === 'ValidationError') {
-    res.status(400).json({
-      success: false,
-      message: 'Սխալ տվյալներ',
-      details: err.message,
-    });
-    return;
-  }
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === 'P2025') {
+      res.status(404).json({
+        success: false,
+        message: 'Գրառումը չի գտնվել',
+      });
+      return;
+    }
 
-  if (err.name === 'CastError') {
-    res.status(400).json({
-      success: false,
-      message: 'Սխալ նույնականացուցիչ',
-    });
-    return;
+    if (err.code === 'P2002') {
+      res.status(400).json({
+        success: false,
+        message: 'Այդ արժեքը արդեն գոյություն ունի',
+      });
+      return;
+    }
   }
 
   console.error(err);

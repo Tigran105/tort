@@ -33,13 +33,12 @@ import {
   getOrders,
   updateOrderStatus,
 } from '../controllers/orderController';
-import { Fruit, Filling, Nut } from '../models';
 
 const router = Router();
 
-const fruitController = createNamedAttributeController(Fruit, 'Մրգը չի գտնվել');
-const nutController = createNamedAttributeController(Nut, 'Ընդեղենը չի գտնվել');
-const fillingController = createNamedAttributeController(Filling, 'Միջուկը չի գտնվել');
+const fruitController = createNamedAttributeController('fruit', 'Մրգը չի գտնվել');
+const nutController = createNamedAttributeController('nut', 'Ընդեղենը չի գտնվել');
+const fillingController = createNamedAttributeController('filling', 'Միջուկը չի գտնվել');
 
 router.get('/builder-options', getBuilderOptions);
 

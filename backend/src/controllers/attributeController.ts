@@ -1,69 +1,144 @@
-import { Model } from 'mongoose';
 import { Request, Response } from 'express';
-import { createSearchRegex } from '../utils/searchText';
+import { prisma } from '../lib/prisma';
 import { asyncHandler } from '../utils/asyncHandler';
 import { AppError } from '../middleware/errorHandler';
+import { parseId } from '../utils/parseId';
+import { buildSearchWhere } from '../utils/searchFilter';
+import { prepareNamedEntityData } from '../utils/entityData';
+import {
+  serializeFilling,
+  serializeFruit,
+  serializeNut,
+} from '../utils/serializers';
 
-interface NamedDocument {
-  _id: unknown;
-  name: string;
-  searchText?: string;
-  sortOrder?: number;
-  isActive?: boolean;
+type NamedAttributeModel = 'fruit' | 'nut' | 'filling';
+
+function buildListWhere(search: unknown, active: unknown) {
+  const searchWhere =
+    typeof search === 'string' ? buildSearchWhere(search) : undefined;
+
+  return {
+    ...(active === 'true' ? { isActive: true } : {}),
+    ...(searchWhere ?? {}),
+  };
 }
 
-export function createNamedAttributeController<T extends NamedDocument>(
-  Model: Model<T>,
+export function createNamedAttributeController(
+  model: NamedAttributeModel,
   notFoundMessage: string,
 ) {
   const getAll = asyncHandler(async (req: Request, res: Response) => {
-    const { search, active } = req.query;
-    const filter: Record<string, unknown> = {};
+    const where = buildListWhere(req.query.search, req.query.active);
 
-    if (active === 'true') {
-      filter.isActive = true;
+    if (model === 'fruit') {
+      const items = await prisma.fruit.findMany({
+        where,
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      });
+      res.json({ success: true, data: items.map(serializeFruit) });
+      return;
     }
 
-    if (typeof search === 'string' && search.trim()) {
-      filter.searchText = createSearchRegex(search);
+    if (model === 'nut') {
+      const items = await prisma.nut.findMany({
+        where,
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      });
+      res.json({ success: true, data: items.map(serializeNut) });
+      return;
     }
 
-    const items = await Model.find(filter).sort({ sortOrder: 1, name: 1 });
-    res.json({ success: true, data: items });
+    const items = await prisma.filling.findMany({
+      where,
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+    res.json({ success: true, data: items.map(serializeFilling) });
   });
 
   const getById = asyncHandler(async (req: Request, res: Response) => {
-    const item = await Model.findById(req.params.id);
+    const id = parseId(req.params.id);
 
-    if (!item) {
-      throw new AppError(notFoundMessage, 404);
+    if (model === 'fruit') {
+      const item = await prisma.fruit.findUnique({ where: { id } });
+      if (!item) throw new AppError(notFoundMessage, 404);
+      res.json({ success: true, data: serializeFruit(item) });
+      return;
     }
 
-    res.json({ success: true, data: item });
+    if (model === 'nut') {
+      const item = await prisma.nut.findUnique({ where: { id } });
+      if (!item) throw new AppError(notFoundMessage, 404);
+      res.json({ success: true, data: serializeNut(item) });
+      return;
+    }
+
+    const item = await prisma.filling.findUnique({ where: { id } });
+    if (!item) throw new AppError(notFoundMessage, 404);
+    res.json({ success: true, data: serializeFilling(item) });
   });
 
   const create = asyncHandler(async (req: Request, res: Response) => {
-    const item = await Model.create(req.body);
-    res.status(201).json({ success: true, data: item });
+    const data = prepareNamedEntityData(req.body);
+
+    if (model === 'fruit') {
+      const item = await prisma.fruit.create({ data });
+      res.status(201).json({ success: true, data: serializeFruit(item) });
+      return;
+    }
+
+    if (model === 'nut') {
+      const item = await prisma.nut.create({ data });
+      res.status(201).json({ success: true, data: serializeNut(item) });
+      return;
+    }
+
+    const item = await prisma.filling.create({ data });
+    res.status(201).json({ success: true, data: serializeFilling(item) });
   });
 
   const update = asyncHandler(async (req: Request, res: Response) => {
-    const item = await Model.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const id = parseId(req.params.id);
+    const data =
+      req.body.name !== undefined
+        ? prepareNamedEntityData(req.body)
+        : {
+            sortOrder:
+              req.body.sortOrder !== undefined ? Number(req.body.sortOrder) : undefined,
+            isActive: req.body.isActive,
+          };
 
-    if (!item) {
+    try {
+      if (model === 'fruit') {
+        const item = await prisma.fruit.update({ where: { id }, data });
+        res.json({ success: true, data: serializeFruit(item) });
+        return;
+      }
+
+      if (model === 'nut') {
+        const item = await prisma.nut.update({ where: { id }, data });
+        res.json({ success: true, data: serializeNut(item) });
+        return;
+      }
+
+      const item = await prisma.filling.update({ where: { id }, data });
+      res.json({ success: true, data: serializeFilling(item) });
+    } catch {
       throw new AppError(notFoundMessage, 404);
     }
-
-    res.json({ success: true, data: item });
   });
 
   const remove = asyncHandler(async (req: Request, res: Response) => {
-    const item = await Model.findByIdAndDelete(req.params.id);
+    const id = parseId(req.params.id);
 
-    if (!item) {
+    try {
+      if (model === 'fruit') {
+        await prisma.fruit.delete({ where: { id } });
+      } else if (model === 'nut') {
+        await prisma.nut.delete({ where: { id } });
+      } else {
+        await prisma.filling.delete({ where: { id } });
+      }
+    } catch {
       throw new AppError(notFoundMessage, 404);
     }
 

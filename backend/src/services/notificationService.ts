@@ -1,4 +1,4 @@
-import { IOrder } from '../models';
+import type { ApiOrder } from '../types/order';
 
 export interface OrderNotificationPayload {
   orderId: string;
@@ -12,36 +12,32 @@ export interface OrderNotificationPayload {
   details: string;
 }
 
-function formatOrderDetails(order: IOrder): string {
+function formatOrderDetails(order: ApiOrder): string {
   if (order.orderType === 'custom' && order.customSelections) {
-    const selections = order.customSelections as unknown as Record<
-      string,
-      { name?: string } | undefined
-    >;
+    const { tier, size, filling, fruit, nut } = order.customSelections;
     const parts = [
-      selections.tier?.name ? `Հարկեր: ${selections.tier.name}` : null,
-      selections.size?.name ? `Չափս: ${selections.size.name}` : null,
-      selections.filling?.name ? `Միջուկ: ${selections.filling.name}` : null,
-      selections.fruit?.name ? `Մրգեր: ${selections.fruit.name}` : null,
-      selections.nut?.name ? `Ընդեղեն: ${selections.nut.name}` : null,
+      tier?.name ? `Հարկեր: ${tier.name}` : null,
+      size?.name ? `Չափս: ${size.name}` : null,
+      filling?.name ? `Միջուկ: ${filling.name}` : null,
+      fruit?.name ? `Մրգեր: ${fruit.name}` : null,
+      nut?.name ? `Ընդեղեն: ${nut.name}` : null,
     ].filter(Boolean);
 
     return parts.join('\n');
   }
 
-  const cake = order.cake as { name?: string } | undefined;
-  return cake?.name ? `Տորթ: ${cake.name}` : 'Կատալոգային պատվեր';
+  return order.cake?.name ? `Տորթ: ${order.cake.name}` : 'Կատալոգային պատվեր';
 }
 
-export function buildOrderNotificationPayload(order: IOrder): OrderNotificationPayload {
+export function buildOrderNotificationPayload(order: ApiOrder): OrderNotificationPayload {
   return {
-    orderId: String(order._id),
+    orderId: order._id,
     orderType: order.orderType,
     customerName: order.customer.name,
     customerPhone: order.customer.phone,
     customerEmail: order.customer.email,
     deliveryDate: order.deliveryDate?.toISOString(),
-    notes: order.notes,
+    notes: order.notes ?? undefined,
     totalPrice: order.totalPrice,
     details: formatOrderDetails(order),
   };
@@ -119,7 +115,6 @@ async function sendEmailNotification(
     return;
   }
 
-  // Structured hook for a future nodemailer integration.
   console.info('[notifications] Email notification ready to send', {
     to: notifyEmail,
     subject: `Նոր պատվեր #${payload.orderId}`,
@@ -130,7 +125,7 @@ async function sendEmailNotification(
   });
 }
 
-export async function notifyNewOrder(order: IOrder): Promise<void> {
+export async function notifyNewOrder(order: ApiOrder): Promise<void> {
   const payload = buildOrderNotificationPayload(order);
   const message = buildNotificationMessage(payload);
 

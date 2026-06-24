@@ -1,70 +1,82 @@
 import { Request, Response } from 'express';
-import {
-  Filling,
-  Fruit,
-  Nut,
-  Order,
-  OrderStatus,
-  Size,
-  Tier,
-} from '../models';
+import { prisma } from '../lib/prisma';
 import { asyncHandler } from '../utils/asyncHandler';
 import { AppError } from '../middleware/errorHandler';
+import { parseId, parseOptionalId } from '../utils/parseId';
+import { mapIncomingCustomSelections } from '../utils/entityData';
+import {
+  serializeFilling,
+  serializeFruit,
+  serializeNut,
+  serializeSize,
+  serializeTier,
+} from '../utils/serializers';
+import { enrichOrder, enrichOrders } from '../services/orderEnrichment';
 import { notifyNewOrder } from '../services/notificationService';
+import type { OrderStatus } from '../types/order';
 
 export const getBuilderOptions = asyncHandler(async (_req: Request, res: Response) => {
   const [tiers, sizes, fillings, fruits, nuts] = await Promise.all([
-    Tier.find({ isActive: true }).sort({ sortOrder: 1, level: 1 }),
-    Size.find({ isActive: true }).sort({ sortOrder: 1 }),
-    Filling.find({ isActive: true }).sort({ sortOrder: 1, name: 1 }),
-    Fruit.find({ isActive: true }).sort({ sortOrder: 1, name: 1 }),
-    Nut.find({ isActive: true }).sort({ sortOrder: 1, name: 1 }),
+    prisma.tier.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { count: 'asc' }],
+    }),
+    prisma.size.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: 'asc' },
+    }),
+    prisma.filling.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
+    prisma.fruit.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
+    prisma.nut.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
   ]);
 
   res.json({
     success: true,
-    data: { tiers, sizes, fillings, fruits, nuts },
+    data: {
+      tiers: tiers.map(serializeTier),
+      sizes: sizes.map(serializeSize),
+      fillings: fillings.map(serializeFilling),
+      fruits: fruits.map(serializeFruit),
+      nuts: nuts.map(serializeNut),
+    },
   });
 });
 
 export const getOrders = asyncHandler(async (req: Request, res: Response) => {
   const { status, orderType } = req.query;
-  const filter: Record<string, unknown> = {};
 
-  if (typeof status === 'string' && status.trim()) {
-    filter.status = status;
-  }
+  const orders = await prisma.order.findMany({
+    where: {
+      ...(typeof status === 'string' && status.trim() ? { status: status as OrderStatus } : {}),
+      ...(typeof orderType === 'string' && orderType.trim()
+        ? { orderType: orderType as 'custom' | 'catalog' }
+        : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+  });
 
-  if (typeof orderType === 'string' && orderType.trim()) {
-    filter.orderType = orderType;
-  }
-
-  const orders = await Order.find(filter)
-    .populate('customSelections.tier')
-    .populate('customSelections.size')
-    .populate('customSelections.filling')
-    .populate('customSelections.fruit')
-    .populate('customSelections.nut')
-    .populate('cake')
-    .sort({ createdAt: -1 });
-
-  res.json({ success: true, data: orders });
+  res.json({ success: true, data: await enrichOrders(orders) });
 });
 
 export const getOrderById = asyncHandler(async (req: Request, res: Response) => {
-  const order = await Order.findById(req.params.id)
-    .populate('customSelections.tier')
-    .populate('customSelections.size')
-    .populate('customSelections.filling')
-    .populate('customSelections.fruit')
-    .populate('customSelections.nut')
-    .populate('cake');
+  const order = await prisma.order.findUnique({
+    where: { id: parseId(req.params.id) },
+  });
 
   if (!order) {
     throw new AppError('Պատվերը չի գտնվել', 404);
   }
 
-  res.json({ success: true, data: order });
+  res.json({ success: true, data: await enrichOrder(order) });
 });
 
 export const createOrder = asyncHandler(async (req: Request, res: Response) => {
@@ -95,30 +107,26 @@ export const createOrder = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError('Ընտրեք տորթ', 400);
   }
 
-  const order = await Order.create({
-    orderType,
-    customer,
-    customSelections: orderType === 'custom' ? customSelections : undefined,
-    cake: orderType === 'catalog' ? cake : undefined,
-    quantity,
-    deliveryDate,
-    notes,
-    totalPrice,
+  const order = await prisma.order.create({
+    data: {
+      orderType,
+      userContactInfo: customer,
+      customSelections:
+        orderType === 'custom'
+          ? mapIncomingCustomSelections(customSelections)
+          : undefined,
+      cakeId: orderType === 'catalog' ? parseOptionalId(cake) : undefined,
+      quantity: quantity !== undefined ? Number(quantity) : undefined,
+      deliveryDate: deliveryDate ? new Date(deliveryDate) : undefined,
+      notes,
+      totalPrice: totalPrice !== undefined ? Number(totalPrice) : undefined,
+    },
   });
 
-  const populatedOrder = await Order.findById(order._id)
-    .populate('customSelections.tier')
-    .populate('customSelections.size')
-    .populate('customSelections.filling')
-    .populate('customSelections.fruit')
-    .populate('customSelections.nut')
-    .populate('cake');
+  const populatedOrder = await enrichOrder(order);
+  await notifyNewOrder(populatedOrder);
 
-  if (populatedOrder) {
-    await notifyNewOrder(populatedOrder);
-  }
-
-  res.status(201).json({ success: true, data: populatedOrder ?? order });
+  res.status(201).json({ success: true, data: populatedOrder });
 });
 
 export const updateOrderStatus = asyncHandler(async (req: Request, res: Response) => {
@@ -134,21 +142,14 @@ export const updateOrderStatus = asyncHandler(async (req: Request, res: Response
     throw new AppError('Սխալ կարգավիճակ', 400);
   }
 
-  const order = await Order.findByIdAndUpdate(
-    req.params.id,
-    { status },
-    { new: true, runValidators: true },
-  )
-    .populate('customSelections.tier')
-    .populate('customSelections.size')
-    .populate('customSelections.filling')
-    .populate('customSelections.fruit')
-    .populate('customSelections.nut')
-    .populate('cake');
+  try {
+    const order = await prisma.order.update({
+      where: { id: parseId(req.params.id) },
+      data: { status },
+    });
 
-  if (!order) {
+    res.json({ success: true, data: await enrichOrder(order) });
+  } catch {
     throw new AppError('Պատվերը չի գտնվել', 404);
   }
-
-  res.json({ success: true, data: order });
 });
