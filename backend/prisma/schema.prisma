@@ -1,7 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// Prisma schema for Tort Bakery (MySQL)
+// https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client"
@@ -10,4 +8,155 @@ generator client {
 
 datasource db {
   provider = "mysql"
+}
+
+enum OrderType {
+  custom
+  catalog
+}
+
+enum OrderStatus {
+  pending
+  confirmed
+  completed
+  cancelled
+}
+
+model Category {
+  id         Int      @id @default(autoincrement())
+  name       String   @unique @db.VarChar(191)
+  slug       String   @unique @db.VarChar(191)
+  searchText String   @db.Text
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  products Cake[]
+
+  @@index([searchText(length: 191)])
+  @@map("categories")
+}
+
+model Fruit {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique @db.VarChar(191)
+  slug          String   @unique @db.VarChar(191)
+  searchText    String   @db.Text
+  priceModifier Decimal  @default(0) @db.Decimal(10, 2)
+  sortOrder     Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([searchText(length: 191)])
+  @@map("fruits")
+}
+
+model Nut {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique @db.VarChar(191)
+  slug          String   @unique @db.VarChar(191)
+  searchText    String   @db.Text
+  priceModifier Decimal  @default(0) @db.Decimal(10, 2)
+  sortOrder     Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([searchText(length: 191)])
+  @@map("nuts")
+}
+
+model Filling {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(191)
+  slug        String   @unique @db.VarChar(191)
+  searchText  String   @db.Text
+  description String?  @db.Text
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([searchText(length: 191)])
+  @@map("fillings")
+}
+
+model Size {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique @db.VarChar(10)
+  name        String   @db.VarChar(50)
+  guestsCount String   @db.VarChar(100)
+  basePrice   Decimal  @default(0) @db.Decimal(10, 2)
+  slug        String   @unique @db.VarChar(191)
+  searchText  String   @db.Text
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([searchText(length: 191)])
+  @@map("sizes")
+}
+
+model Tier {
+  id              Int      @id @default(autoincrement())
+  count           Int      @unique
+  name            String   @unique @db.VarChar(191)
+  priceMultiplier Decimal  @default(1) @db.Decimal(5, 2)
+  slug            String   @unique @db.VarChar(191)
+  searchText      String   @db.Text
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([searchText(length: 191)])
+  @@map("tiers")
+}
+
+model Cake {
+  id          Int      @id @default(autoincrement())
+  title       String   @db.VarChar(191)
+  slug        String   @unique @db.VarChar(191)
+  description String   @db.Text
+  price       Decimal  @db.Decimal(10, 2)
+  images      Json     @default("[]")
+  ingredients Json?
+  searchText  String   @db.Text
+  isFeatured  Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  categoryId  Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  orders   Order[]
+
+  @@index([categoryId])
+  @@index([searchText(length: 191)])
+  @@map("cakes")
+}
+
+model Order {
+  id               Int         @id @default(autoincrement())
+  orderType        OrderType
+  status           OrderStatus @default(pending)
+  totalPrice       Decimal?    @db.Decimal(10, 2)
+  customSelections Json?
+  userContactInfo  Json
+  cakeId           Int?
+  quantity         Int?
+  deliveryDate     DateTime?
+  notes            String?     @db.Text
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  cake Cake? @relation(fields: [cakeId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([orderType])
+  @@index([createdAt])
+  @@map("orders")
 }
